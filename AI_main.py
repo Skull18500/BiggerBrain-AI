@@ -6,9 +6,8 @@ if __name__ == '__main__':
     import torch
     from biggerbrain import think, initmodel # Import the specific class
     import training_utils as t_u
-
-    import time
     
+    import time
     import ai_extras as A_E
     # Also force compile errors to be visible:
     import torch._dynamo
@@ -27,11 +26,11 @@ if __name__ == '__main__':
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.001
+    lr = 0.0001
     train_lr = 0.00005
-    subsetfraction = 0.1
+    subsetfraction = 0.05
     epochs = 100
-    batchsize = 32
+    batchsize = 48
     chunksize= 256
     maxbatches = 100
     #-----
@@ -39,7 +38,7 @@ if __name__ == '__main__':
     model = initmodel(device)
     model.sequencelength = chunksize
 
-    print("Parameters: ", sum(p.numel() for p in model._orig_mod.parameters()))
+    print("Parameters: ", sum(p.numel() for p in model.parameters()))#._orig_mod
 
     print(torch.cuda.get_device_name(0))
     print(f"Compiled: {hasattr(model, '_orig_mod')}")
@@ -57,7 +56,7 @@ if __name__ == '__main__':
             if 'train_ds' not in locals():
                 train_ds = A_E.StreamDataset(bin_file=bin, seq_len=chunksize)
                 print(f"Dataset loaded: {len(train_ds)} samples")
-            model._orig_mod.trainingloop(train_ds, epochs=epochs, lr=train_lr, batchsize=batchsize, subset_fraction=0.1, accumulation_steps=4)
+            model.trainingloop(train_ds, epochs=epochs, lr=train_lr, batchsize=batchsize, subset_fraction=subsetfraction, accumulation_steps=3)#._orig_mod
 
         elif user_input.lower() == "pretrain":#if inputs 'train'
         
@@ -71,7 +70,7 @@ if __name__ == '__main__':
             test_input = torch.zeros(32, 256, dtype=torch.long).to(device)
             with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
                 with torch.no_grad():
-                    model._orig_mod.forward(test_input, iter=3, is_training=False)
+                    model.forward(test_input, iter=3, is_training=False)
             print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
             
         elif user_input.lower() == "dataset copy":
@@ -79,11 +78,11 @@ if __name__ == '__main__':
             t_u.build_dataset(filename)
         elif user_input.lower() == "load":
         
-            model._orig_mod.load_state_dict(torch.load("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\best_model.pt", weights_only=True))
+            model.load_state_dict(torch.load("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\best_model.pt", weights_only=True))
             print("Weights loaded!")
         elif user_input.lower() == "save":
         
-            torch.save(model._orig_mod.state_dict(), "C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\manual_save.pt")
+            torch.save(model.state_dict(), "C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\manual_save.pt")
             print("Saved!")
         elif user_input.lower() == "filesize":
         
@@ -104,7 +103,7 @@ if __name__ == '__main__':
             print("Warming up torch.compile (this takes 30-60 seconds first time)...")
             for i in range(3):
                 with torch.no_grad():
-                    model._orig_mod.forward(test_input, iter=3, is_training=True)
+                    model.forward(test_input, iter=3, is_training=True)
     
             # Actual timed test
             torch.cuda.synchronize()

@@ -189,3 +189,19 @@ class RMSNorm(nn.Module):
         # Upcast input to float32 for norm (more numerically stable anyway)
         # then cast result back to whatever dtype x was
         return torch.rms_norm(x.float(), x.shape[-1:], self.weight, self.eps).to(x.dtype)
+    
+    
+class router(nn.Module):
+    def __init__(self, dim, num_out, top_k = 2):
+        super().__init__()
+        self.L1 = nn.Linear(dim, num_out)
+        self.topk = top_k
+
+    def forward(self, input):
+        x = self.L1(input)
+        y = torch.topk(x, self.topk)
+        
+        z = torch.softmax(y, dim=-1)
+        
+        
+    
