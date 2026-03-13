@@ -124,7 +124,7 @@ class biggerbrain(nn.Module):
         )
         best_loss   = 1000.0
         
-        #self.forward_training = torch.compile(self.forward_training, backend ='eager')#, options=['shape_padding':True]
+        self.forward_training = torch.compile(self.forward_training, backend ='eager')#, options=['shape_padding':True]
         
         for epoch in range(epochs):
             epoch_loss  = 0.0
@@ -154,12 +154,14 @@ class biggerbrain(nn.Module):
                 ]
                 print(f"  ↻ Reshuffled data chunks for next cycle")
 
+            batchloss = 1000
+            
             for i, (batch_inputs, batch_targets) in enumerate(loader):
                 if i == 0:
                     print(f"Epoch {epoch} | Chunk {chunk_idx+1}/{len(chunks)} | "
                         f"Starting training...")
-                if (i + 1) % 10 == 0:
-                    print(f"Epoch {epoch} | Batch {i+1} | loss={lm_loss.item():.4f}")
+                if (i + 1) % 20 == 0:
+                    print(f"Epoch {epoch} | Batch {i} | loss={lm_loss.item():.4f}")
 
 
 
@@ -176,19 +178,23 @@ class biggerbrain(nn.Module):
                         batch_targets.reshape(-1)
                     )
                     loss         = lm_loss / accumulation_steps
-                    epoch_loss  += lm_loss.detach().item()
+                    epoch_loss  += lm_loss.detach()
                     batches_run += 1
 
                 loss.backward()
 
-                
-                if (i + 1) % accumulation_steps == 0:
+                if (i) % 5 == 0:
+                    if batchloss > loss.detach():
+                        batchloss = loss.detach()
+                        torch.save(self.state_dict(), "model_best.pth")
+                        print(f"saved best batch weights loss: {batchloss}")
+                if (i) % accumulation_steps == 0:
 
                     torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
                     optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad(set_to_none=True)
-                print(f"finished batch: {i}")
+                #print(f"finished batch: {i}")
                 
                 
             avg_loss  = (epoch_loss / batches_run)
@@ -197,10 +203,6 @@ class biggerbrain(nn.Module):
                 f"Loss: {avg_loss:.4f} | "
                 f"Chunk: {chunk_idx+1}/{len(chunks)}")
 
-            current_loss = loss.detach().item()
-            if best_loss > current_loss:
-                best_loss = current_loss
-                torch.save(self.state_dict(), "model_best.pt")
                 
                 
     def forward_with_hooks(self, input_ids, iter=3):
@@ -532,14 +534,14 @@ def initmodel(device):
 
 def think(prompt, model, max_length=100, iter=3):
     formatted = f"user: {prompt}\nassistant:"
-    input_ids = torch.tensor([enc.encode(formatted, allowed_special={'<|endoftext|>'})]).to(model._orig_mod.device)
+    input_ids = torch.tensor([enc.encode(formatted, allowed_special={'<|endoftext|>'})]).to(model.device)#._orig_mod.device
     output = []
     
-    model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
-    model._orig_mod.eval()
+    #model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
+    model.eval()
     
     with torch.no_grad():
-        logits, _ = model._orig_mod.forward_chat(input_ids, outlength=max_length, iter=iter)
+        logits, _ = model.forward_chat(input_ids, outlength=max_length, iter=iter)
         
         for i in range(logits.size(1)):
             probs = torch.softmax(logits[0, i], dim=-1)
@@ -551,3 +553,23 @@ def think(prompt, model, max_length=100, iter=3):
             output.append(next_token)
     
     print("Output:", enc.decode(output))
+    
+    
+def think_greedy(prompt, model):
+    input_ids = torch.tensor([enc.encode(prompt)]).to(model.device)
+    model.eval()
+    tokens = []
+    with torch.no_grad():
+        for _ in range(50):
+            curr = input_ids[:, -1024:]
+            logits, _ = model.forward_chat(curr, outlength=1, iter=1)
+            # Greedy — just take the most likely token, no sampling
+            next_tok = logits[0, 0].argmax().item()
+            if next_tok == enc.eot_token:
+                break
+            tokens.append(next_tok)
+            input_ids = torch.cat([
+                input_ids, 
+                torch.tensor([[next_tok]]).to(model.device)
+            ], dim=1)
+    print(enc.decode(tokens))

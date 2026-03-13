@@ -186,85 +186,6 @@ def make_batches_simple(filename, enc, chunk_size=256, batch_size=256, max_batch
         batches.append((x, y))
         
     return batches
-
-
-def build_ultimate_dataset(output_path, total_samples=5000):
-    """
-    Downloads, mixes, and saves a high-quality curriculum.
-    Ratio: 40% Logic (GSM8K) / 60% Conversation (SmolTalk/Instruct)
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # 1. Download GSM8K (The Logic)
-    print("Downloading GSM8K...")
-    gsm_data = load_dataset("gsm8k", "main", split="train", trust_remote_code=True)
-    
-    # 2. Download SmolTalk or similar (The Conversation)
-    # Note: 'lucasmccabe-lmi/CodeAlpaca-20k' or 'HuggingFaceH4/no_robots' are great
-    print("Downloading SmolTalk-style instructions...")
-    instruct_data = load_dataset("HuggingFaceH4/no_robots", split="train")
-
-    num_gsm = int(total_samples * 0.4)
-    num_instruct = int(total_samples * 0.6)
-
-    final_text = []
-
-    # Process GSM8K (Logic)
-    for i in range(min(num_gsm, len(gsm_data))):
-        q = gsm_data[i]['question']
-        a = gsm_data[i]['answer']
-        final_text.append(f"User: {q}\nAssistant: {a}\n---\n")
-
-    # Process Instruction Data (English Grammar/Conversation)
-    for i in range(min(num_instruct, len(instruct_data))):
-        # no_robots uses a 'messages' list or 'prompt'/'messages'
-        prompt = instruct_data[i]['messages'][0]['content']
-        response = instruct_data[i]['messages'][1]['content']
-        final_text.append(f"User: {prompt}\nAssistant: {response}\n---\n")
-
-    # Shuffle so the model doesn't get 2000 math problems in a row
-    random.shuffle(final_text)
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.writelines(final_text)
-    
-    print(f"🔥 Success! Created {len(final_text)} samples at {output_path}")
-
-def add_wiki_knowledge(output_path, num_articles=10000, chunk_size=600):
-    """
-    Pulls articles and breaks them into smaller chunks to maximize data volume.
-    """
-    print(f"📚 Gathering a massive Wiki dataset ({num_articles} articles)...")
-    
-    wiki_data = load_dataset("wikimedia/wikipedia", "20231101.en", split="train", streaming=True)
-    
-    wiki_samples = []
-    count = 0
-    
-    # We use streaming=True so we don't have to download 20GB at once
-    for article in wiki_data:
-        if count >= num_articles:
-            break
-            
-        title = article['title']
-        text = article['text'].replace('\n', ' ')
-        
-        # Break the article into chunks of 'chunk_size' characters
-        # This ensures we get the FULL article data in 128-token bites
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i:i + chunk_size]
-            if len(chunk) < 100: continue # Skip tiny fragments
-            
-            wiki_samples.append(f"Wiki Topic: {title}\nContent: {chunk}\n---\n")
-        
-        count += 1
-        if count % 1000 == 0:
-            print(f"Processed {count} articles...")
-
-    with open(output_path, 'a', encoding='utf-8') as f:
-        f.writelines(wiki_samples)
-    
-    print(f"🔥 Massive Wiki expansion complete! Added approx {len(wiki_samples)} chunks.")
     
 def create_balanced_shuffled_dataset(file_paths, output_path="C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\DATA\\combined.txt"):
     """
@@ -728,39 +649,357 @@ DATALOADER_SNIPPET = '''
 #  MAIN
 # ─────────────────────────────────────────────
 
-if __name__ == "__main__":
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+#if __name__ == "__main__":
+    #os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    pretrain_path  = os.path.join(OUTPUT_DIR, "pretrain_data.txt")
-    finetune_path  = os.path.join(OUTPUT_DIR, "finetune_data.txt")
-    snippet_path   = os.path.join(OUTPUT_DIR, "dataloader_snippet.py")
+    #pretrain_path  = os.path.join(OUTPUT_DIR, "pretrain_data.txt")
+    #finetune_path  = os.path.join(OUTPUT_DIR, "finetune_data.txt")
+    #snippet_path   = os.path.join(OUTPUT_DIR, "dataloader_snippet.py")
 
     # Build datasets
-    build_pretrain(pretrain_path)
-    build_finetune(finetune_path)
+    #build_pretrain(pretrain_path)
+    #build_finetune(finetune_path)
 
     # Print token estimates
-    print("\n── Token Estimates ──────────────────────────────")
-    print(f"Pretrain:")
-    estimate_tokens(pretrain_path)
-    print(f"Finetune:")
-    estimate_tokens(finetune_path)
+    #print("\n── Token Estimates ──────────────────────────────")
+    #print(f"Pretrain:")
+    #estimate_tokens(pretrain_path)
+    #print(f"Finetune:")
+    #estimate_tokens(finetune_path)
 
-    # Save the dataloader snippet
-    with open(snippet_path, "w") as f:
-        f.write(DATALOADER_SNIPPET.strip())
-    print(f"\n── Saved dataloader snippet: {snippet_path}")
+    ## Save the dataloader snippet
+    #with open(snippet_path, "w") as f:
+        #f.write(DATALOADER_SNIPPET.strip())
+    #print(f"\n── Saved dataloader snippet: {snippet_path}")
 
-    print("\n" + "="*50)
-    print("  ALL DONE")
-    print("="*50)
-    print(f"  {pretrain_path}")
-    print(f"  {finetune_path}")
-    print(f"  {snippet_path}")
-    print()
-    print("  Training order:")
-    print("  1. python train.py --data pretrain_data.txt --lr 3e-4")
-    print("  2. python train.py --data finetune_data.txt --lr 3e-5")
-    print()
-    print("  Upload to your rented 5090 with:")
-    print("  rsync -avz training_data/ user@<instance-ip>:~/data/")
+    #print("\n" + "="*50)
+    #print("  ALL DONE")
+    #print("="*50)
+    ##print(f"  {finetune_path}")
+    #print(f"  {snippet_path}")
+    #print()
+    #print("  Training order:")
+    #print("  1. python train.py --data pretrain_data.txt --lr 3e-4")
+    #print("  2. python train.py --data finetune_data.txt --lr 3e-5")
+    #print()
+    #print("  Upload to your rented 5090 with:")
+    #print("  rsync -avz training_data/ user@<instance-ip>:~/data/")
+    
+    
+
+
+"""
+BiggerBrain Dataset Builder
+============================
+Builds TWO files:
+
+  data/pretrain.txt   — clean prose only (books, wiki, stories)
+                        NO chat format mixed in
+                        Use this for stage 1 training at lr=3e-4
+
+  data/finetune.txt   — chat format only (SmolTalk, Orca, GSM8k)
+                        formatted as "user: ...\nassistant: ..."
+                        Use this for stage 2 training at lr=3e-5
+
+Install deps:
+  pip install datasets tqdm
+
+Run:
+  python build_dataset.py
+"""
+
+import os
+import re
+import random
+from datasets import load_dataset
+from tqdm import tqdm
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
+
+OUTPUT_DIR = "./data"
+SEPARATOR  = "<|endoftext|>"   # document boundary token
+
+# How many examples to pull from each source
+# Increase these when you have more disk space / time
+LIMITS = {
+    # Pretraining sources — raw prose, no chat format
+    "gutenberg"   : 50_000,    # ~3B tokens total, we take 50k books
+    "tinystories" : None,      # ~500M tokens, take everything (~2M stories)
+    "wikipedia"   : 100_000,   # 100k articles
+    "openwebtext" : 200_000,   # 200k web pages
+
+    # Finetuning sources — chat format only
+    "smoltalk"    : 100_000,   # 100k conversations
+    "orca"        : 50_000,    # 50k math reasoning problems
+    "gsm8k"       : None,      # ~8k problems, take everything
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def clean(text):
+    """Basic text cleanup — remove nulls, collapse whitespace."""
+    if not text:
+        return ""
+    text = text.replace("\x00", "")
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    text = re.sub(r" {3,}", "  ", text)
+    return text.strip()
+
+def sep(f):
+    """Write document separator."""
+    f.write(f"\n{SEPARATOR}\n")
+
+def safe_load(label, **kwargs):
+    """Load dataset, print friendly error if it fails."""
+    try:
+        print(f"\n  Loading {label}...")
+        return load_dataset(**kwargs, streaming=True, trust_remote_code=True)
+    except Exception as e:
+        print(f"  WARNING: Could not load {label}: {e}")
+        return None
+
+def estimate_tokens(path):
+    """Rough token estimate — GPT2 averages ~4 chars per token."""
+    size = os.path.getsize(path)
+    toks = size / 4
+    print(f"   ~{toks/1e6:.0f}M tokens  ({size/1e9:.2f} GB)")
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STAGE 1 — PRETRAINING DATA
+#  Clean prose only. Zero chat format. Zero GSM8k. Zero Orca.
+#  The model needs to learn language FIRST before learning to chat.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_pretrain(path):
+    print("\n" + "="*60)
+    print("  BUILDING PRETRAINING DATA  (clean prose only)")
+    print("="*60)
+
+    docs = 0
+
+    with open(path, "w", encoding="utf-8") as f:
+
+        # ── 1. Project Gutenberg ─────────────────────────────────────────
+        # Public domain books. Best quality long-form prose available.
+        # The model learns sentence structure, narrative, vocabulary.
+        ds = safe_load("Gutenberg",
+                       path="sedthh/gutenberg_english",
+                       split="train")
+        if ds:
+            lim = LIMITS["gutenberg"]
+            for i, s in enumerate(tqdm(ds, desc="  Gutenberg", total=lim)):
+                if lim and i >= lim:
+                    break
+                text = clean(s.get("TEXT", ""))
+                if len(text) > 500:
+                    f.write(text)
+                    sep(f)
+                    docs += 1
+
+        # ── 2. TinyStories ───────────────────────────────────────────────
+        # Short simple stories written for small LMs specifically.
+        # Proven to make 100M-scale models produce coherent output.
+        # This is probably your most important pretraining source.
+        ds = safe_load("TinyStories",
+                       path="roneneldan/TinyStories",
+                       split="train")
+        if ds:
+            lim = LIMITS["tinystories"]
+            for i, s in enumerate(tqdm(ds, desc="  TinyStories", total=lim)):
+                if lim and i >= lim:
+                    break
+                text = clean(s.get("text", ""))
+                if len(text) > 50:
+                    f.write(text)
+                    sep(f)
+                    docs += 1
+
+        # ── 3. Wikipedia ─────────────────────────────────────────────────
+        # Factual grounding. Teaches the model world knowledge.
+        # Just the raw article text — no special prefix needed.
+        ds = safe_load("Wikipedia",
+                       path="wikimedia/wikipedia",
+                       name="20231101.en",
+                       split="train")
+        if ds:
+            lim = LIMITS["wikipedia"]
+            for i, s in enumerate(tqdm(ds, desc="  Wikipedia", total=lim)):
+                if lim and i >= lim:
+                    break
+                text = clean(s.get("text", ""))
+                if len(text) > 200:
+                    f.write(text)
+                    sep(f)
+                    docs += 1
+
+        # ── 4. OpenWebText ───────────────────────────────────────────────
+        # Open recreation of GPT-2's actual training data.
+        # High quality web text filtered by Reddit upvotes.
+        ds = safe_load("OpenWebText",
+                       path="Skylion007/openwebtext",
+                       split="train")
+        if ds:
+            lim = LIMITS["openwebtext"]
+            for i, s in enumerate(tqdm(ds, desc="  OpenWebText", total=lim)):
+                if lim and i >= lim:
+                    break
+                text = clean(s.get("text", ""))
+                if len(text) > 200:
+                    f.write(text)
+                    sep(f)
+                    docs += 1
+
+    size = os.path.getsize(path) / 1e9
+    print(f"\n  Pretraining data done")
+    print(f"     Documents : {docs:,}")
+    print(f"     File size : {size:.2f} GB")
+    estimate_tokens(path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STAGE 2 — FINETUNING DATA
+#  Chat format ONLY. Must match your think() function format exactly:
+#  "user: {prompt}\nassistant: {response}"
+#  Only run AFTER stage 1 training has converged (~loss 3.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fmt(user, assistant):
+    """
+    Format a chat pair to match your think() function format exactly.
+    lowercase user: and assistant: to match your think() function.
+    """
+    user      = clean(user)
+    assistant = clean(assistant)
+    if not user or not assistant:
+        return ""
+    return f"user: {user}\nassistant: {assistant}"
+
+def build_finetune(path):
+    print("\n" + "="*60)
+    print("  BUILDING FINETUNING DATA  (chat format only)")
+    print("="*60)
+
+    pairs = 0
+
+    with open(path, "w", encoding="utf-8") as f:
+
+        # ── 1. SmolTalk ──────────────────────────────────────────────────
+        # High quality conversational data from HuggingFace.
+        # Teaches the model to respond helpfully in chat format.
+        ds = safe_load("SmolTalk",
+                       path="HuggingFaceTB/smoltalk",
+                       name="all",
+                       split="train")
+        if ds:
+            lim = LIMITS["smoltalk"]
+            for i, s in enumerate(tqdm(ds, desc="  SmolTalk", total=lim)):
+                if lim and i >= lim:
+                    break
+                msgs = s.get("messages", [])
+                for j in range(len(msgs) - 1):
+                    if (msgs[j].get("role")   == "user" and
+                        msgs[j+1].get("role") == "assistant"):
+                        pair = fmt(msgs[j]["content"], msgs[j+1]["content"])
+                        if pair:
+                            f.write(pair)
+                            sep(f)
+                            pairs += 1
+
+        # ── 2. Orca Math ─────────────────────────────────────────────────
+        # Math word problems with step-by-step chain of thought.
+        # Teaches the model to reason through problems step by step.
+        ds = safe_load("Orca Math",
+                       path="microsoft/orca-math-word-problems-200k",
+                       split="train")
+        if ds:
+            lim = LIMITS["orca"]
+            for i, s in enumerate(tqdm(ds, desc="  Orca", total=lim)):
+                if lim and i >= lim:
+                    break
+                pair = fmt(s.get("question", ""), s.get("answer", ""))
+                if pair:
+                    f.write(pair)
+                    sep(f)
+                    pairs += 1
+
+        # ── 3. GSM8K ─────────────────────────────────────────────────────
+        # Grade school math. Small but very high quality reasoning data.
+        ds = safe_load("GSM8K",
+                       path="openai/gsm8k",
+                       name="main",
+                       split="train")
+        if ds:
+            lim = LIMITS["gsm8k"]
+            for i, s in enumerate(tqdm(ds, desc="  GSM8K")):
+                if lim and i >= lim:
+                    break
+                pair = fmt(s.get("question", ""), s.get("answer", ""))
+                if pair:
+                    f.write(pair)
+                    sep(f)
+                    pairs += 1
+
+    size = os.path.getsize(path) / 1e9
+    print(f"\n  Finetuning data done")
+    print(f"     Pairs     : {pairs:,}")
+    print(f"     File size : {size:.2f} GB")
+    estimate_tokens(path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DATALOADER — paste this into your training script
+# ─────────────────────────────────────────────────────────────────────────────
+
+LOADER_CODE = '''
+import os
+import torch
+import tiktoken
+from torch.utils.data import IterableDataset
+
+enc     = tiktoken.get_encoding("gpt2")
+SEQ_LEN = 1024   # must match model.sequencelength
+
+class TextFileDataset(IterableDataset):
+    """
+    Streams tokenized text from a .txt file.
+    Yields (input, target) pairs of length SEQ_LEN.
+    Never loads the whole file into RAM.
+    """
+    def __init__(self, path, seq_len=SEQ_LEN):
+        self.path    = path
+        self.seq_len = seq_len
+
+    def __iter__(self):
+        buf = []
+        with open(self.path, "r", encoding="utf-8") as f:
+            for line in f:
+                toks = enc.encode(line,
+                                  allowed_special={"<|endoftext|>"})
+                buf.extend(toks)
+                while len(buf) >= self.seq_len + 1:
+                    chunk = buf[:self.seq_len + 1]
+                    x = torch.tensor(chunk[:-1], dtype=torch.long)
+                    y = torch.tensor(chunk[1:],  dtype=torch.long)
+                    yield x, y
+                    buf = buf[self.seq_len:]
+
+    def __len__(self):
+        # Rough estimate for SubsetRandomSampler
+        size = os.path.getsize(self.path)
+        return int((size / 4) / self.seq_len)
+
+
+# ── Training order ──────────────────────────────────────────────────────────
+
+# Stage 1 — pretrain on clean prose until loss ~3.5:
+# ds = TextFileDataset("data/pretrain.txt")
+# model.trainingloop(ds, epochs=3, lr=3e-4, subset_fraction=0.25)
+
+# Stage 2 — finetune on chat data only, lower lr, fewer epochs:
+# ds = TextFileDataset("data/finetune.txt")
+# model.trainingloop(ds, epochs=3, lr=3e-5, subset_fraction=1.0)
+'''

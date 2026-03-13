@@ -4,7 +4,7 @@ if __name__ == '__main__':
     import os
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch
-    from biggerbrain import think, initmodel # Import the specific class
+    from biggerbrain import think, initmodel, think_greedy # Import the specific class
     import training_utils as t_u
     
     import time
@@ -26,10 +26,10 @@ if __name__ == '__main__':
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.0001
-    train_lr = 0.00005
+    lr = 0.00005
+    train_lr = 0.00001
     subsetfraction = 0.05
-    epochs = 100
+    epochs = 10
     batchsize = 48
     chunksize= 256
     maxbatches = 100
@@ -56,7 +56,7 @@ if __name__ == '__main__':
             if 'train_ds' not in locals():
                 train_ds = A_E.StreamDataset(bin_file=bin, seq_len=chunksize)
                 print(f"Dataset loaded: {len(train_ds)} samples")
-            model.trainingloop(train_ds, epochs=epochs, lr=train_lr, batchsize=batchsize, subset_fraction=subsetfraction, accumulation_steps=3)#._orig_mod
+            model.trainingloop(train_ds, epochs=epochs, lr=train_lr, batchsize=batchsize, subset_fraction=subsetfraction, accumulation_steps=2)#._orig_mod
 
         elif user_input.lower() == "pretrain":#if inputs 'train'
         
@@ -78,7 +78,7 @@ if __name__ == '__main__':
             t_u.build_dataset(filename)
         elif user_input.lower() == "load":
         
-            model.load_state_dict(torch.load("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\best_model.pt", weights_only=True))
+            model.load_state_dict(torch.load("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\model_best.pth", weights_only=True))# .pth or .pt?
             print("Weights loaded!")
         elif user_input.lower() == "save":
         
@@ -89,7 +89,7 @@ if __name__ == '__main__':
             size = os.path.getsize(filename) / 1024 / 1024
             print(f"Training file: {size:.1f} MB")
         elif user_input.lower() == "makefiles":
-            t_u.build_pretrain("pretrain.txt")
+            t_u. build_pretrain("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\pretraining.txt")
             train_ds = A_E.StreamDataset(
             bin_file=bin, 
             seq_len=chunksize
@@ -116,6 +116,10 @@ if __name__ == '__main__':
             print(f"Average forward pass: {elapsed*1000:.0f}ms")
             print(f"Estimated epoch time with 200 batches: {elapsed*200/60:.1f} minutes")
             
+            
+        elif user_input.lower() == "greed":
+            think_greedy("The old man", model)
+            think_greedy("user: hello\nassistant:", model)
         else:
         
             with torch.no_grad():
