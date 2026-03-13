@@ -1,0 +1,7 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "github.copilot.chat.terminalChatLocation": "chatView",
+    "github.copilot.chat.backgroundCompaction": true,
+    "github.copilot.chat.copilotMemory.enabled": true,
+    "github.copilot.chat.anthropic.tools.websearch.maxUses": 10
+}
