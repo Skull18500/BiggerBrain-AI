@@ -10,10 +10,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ── Load model ───────────────────────────────────────────────────────────
 model = biggerbrain(device).to(device)
-model.load_state_dict(torch.load("model_best.pt", map_location=device))
+model.load_state_dict(torch.load("model_best.pth", map_location=device))
 model.eval()
 
-def visualize_thinking(prompt: str, iter: int = 3):
+def visualize_thinking(prompt: str, iter: int = 3, addition = ""):
         # Tokenize
         tokens    = enc.encode(f"user: {prompt}\nassistant:", 
                            allowed_special={"<|endoftext|>"})
@@ -87,11 +87,11 @@ def visualize_thinking(prompt: str, iter: int = 3):
                 legend=dict(bgcolor="rgba(0,0,0,0.5)")
         )
 
-        fig.write_html("thought_viz.html")
+        fig.write_html(f"{addition}thought_viz.html")
         fig.show()
-        print("Saved to thought_viz.html")
+        print(f"Saved to {addition}thought_viz.html")
 
-
-biggerbrain.train
-        
-visualize_thinking("What is the capital of France?", iter=3)
+print("Thinking about : How are you for iter 3") 
+visualize_thinking("How are you?", iter=3, addition="3iter")
+print("Thinking about : How are you for iter 6") 
+visualize_thinking("How are you?", iter=6, addition="6iter")

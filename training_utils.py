@@ -1003,3 +1003,56 @@ class TextFileDataset(IterableDataset):
 # ds = TextFileDataset("data/finetune.txt")
 # model.trainingloop(ds, epochs=3, lr=3e-5, subset_fraction=1.0)
 '''
+
+
+
+def tokenize_to_binary(txt_path: str, chunk_size: int = 1_000_000):
+    """
+    Converts a plain .txt file to a pretokenized uint16 binary file.
+    Writes in chunks so it never runs out of RAM.
+    Output saved alongside input with .bin extension.
+    """
+    import os
+    import tiktoken
+    import numpy as np
+
+    enc      = tiktoken.get_encoding("gpt2")
+    bin_path = os.path.splitext(txt_path)[0] + ".bin"
+
+    print(f"Input:  {txt_path}")
+    print(f"Output: {bin_path}")
+    print("Tokenizing...")
+
+    total_tokens = 0
+    buffer       = []
+
+    with open(txt_path, "r", encoding="utf-8") as f_in, \
+         open(bin_path, "wb") as f_out:
+
+        for i, line in enumerate(f_in):
+            toks = enc.encode(line, allowed_special={"<|endoftext|>"})
+            buffer.extend(toks)
+
+            # Flush to disk every chunk_size tokens
+            # Never holds more than chunk_size tokens in RAM at once
+            if len(buffer) >= chunk_size:
+                arr = np.array(buffer, dtype=np.uint16)
+                arr.tofile(f_out)
+                total_tokens += len(buffer)
+                buffer = []
+
+                if (total_tokens // chunk_size) % 100 == 0:
+                    print(f"  Tokens written: {total_tokens/1e6:.1f}M")
+
+        # Flush remainder
+        if buffer:
+            arr = np.array(buffer, dtype=np.uint16)
+            arr.tofile(f_out)
+            total_tokens += len(buffer)
+
+    print(f"\nDone.")
+    print(f"  Total tokens : {total_tokens/1e6:.1f}M")
+    print(f"  File size    : {os.path.getsize(bin_path)/1e9:.2f} GB")
+    print(f"  Saved to     : {bin_path}")
+
+    return bin_path

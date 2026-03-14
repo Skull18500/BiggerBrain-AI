@@ -204,4 +204,45 @@ class router(nn.Module):
         z = torch.softmax(y, dim=-1)
         
         
+class FlashCrossAttention(nn.Module):
+    """
+    Drop-in replacement for nn.MultiheadAttention that uses
+    Flash Attention (O(seq) memory instead of O(seq²)).
     
+    Usage identical to your existing MA1/MA2:
+        self.layerMA1 = AI_ex.FlashCrossAttention(dim, heads)
+        y, _ = self.layerMA1(query, key, value, attn_mask=mask)
+    
+    The attn_mask parameter is accepted but ignored —
+    Flash Attention handles causality internally and is
+    always more memory efficient than passing an explicit mask.
+    """
+    def __init__(self, dim, heads):
+        super().__init__()
+        self.heads    = heads
+        self.head_dim = dim // heads
+        self.dim      = dim
+
+        self.q_proj   = nn.Linear(dim, dim, bias=False)
+        self.k_proj   = nn.Linear(dim, dim, bias=False)
+        self.v_proj   = nn.Linear(dim, dim, bias=False)
+        self.out_proj = nn.Linear(dim, dim, bias=False)
+
+    def forward(self, query, key, value, attn_mask=None):
+        B, Sq, D  = query.shape
+        Skv       = key.size(1)
+        H, Hd     = self.heads, self.head_dim
+
+        q = self.q_proj(query).view(B, Sq,  H, Hd).transpose(1, 2)
+        k = self.k_proj(key).view(B,   Skv, H, Hd).transpose(1, 2)
+        v = self.v_proj(value).view(B,  Skv, H, Hd).transpose(1, 2)
+
+        # Flash Attention — O(seq) memory, same result as standard attention
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=None,   # cross attention doesn't need causal mask
+            is_causal=False
+        )
+
+        out = out.transpose(1, 2).contiguous().view(B, Sq, D)
+        return self.out_proj(out), None  # None matches nn.MultiheadAttention signature

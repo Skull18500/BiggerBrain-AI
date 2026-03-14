@@ -13,13 +13,20 @@ if __name__ == '__main__':
     import torch._dynamo
     torch._dynamo.config.suppress_errors = False
     torch._dynamo.config.verbose = True
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('medium')
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("using device:",device)
 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+    
+    print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+    print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
+    print(f"Free:      {torch.cuda.mem_get_info()[0]/1e9:.2f} GB")
+    
+    import subprocess
+    subprocess.run(["nvidia-smi"], shell=True)
+    
     #-----Vars
     filename = os.path.join(BASE_DIR, "DATA", "pretrain.txt")
     trainfilename = os.path.join(BASE_DIR, "DATA", "wiki.txt")
@@ -28,10 +35,10 @@ if __name__ == '__main__':
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
     lr = 0.00005
     train_lr = 0.00001
-    subsetfraction = 0.05
+    subsetfraction = 0.25
     epochs = 10
-    batchsize = 48
-    chunksize= 256
+    batchsize = 16
+    chunksize= 512
     maxbatches = 100
     #-----
 
@@ -58,12 +65,15 @@ if __name__ == '__main__':
                 print(f"Dataset loaded: {len(train_ds)} samples")
             model.trainingloop(train_ds, epochs=epochs, lr=train_lr, batchsize=batchsize, subset_fraction=subsetfraction, accumulation_steps=2)#._orig_mod
 
-        elif user_input.lower() == "pretrain":#if inputs 'train'
+        elif user_input.lower() == "pretrain":
+            
+            #bin_dir = t_u.tokenize_to_binary("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\pretrain\\pretraining.txt")
+            if 'pretrain_ds' not in locals():
+                pretrain_ds = A_E.StreamDataset(bin_file="C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\pretrain\\pretraining.bin", seq_len=chunksize)
+                print(f"Dataset loaded: {len(pretrain_ds)} samples")
+            
         
-            batches = t_u.make_batches_fast(filename=filename, chunk_size=chunksize, 
-                                 batch_size=batchsize, max_batches=maxbatches)
-        
-            model.trainingloop(batches, epochs=epochs, lr=lr, batchsize=batchsize)#TODO: implement profiling.
+            model.trainingloop(pretrain_ds, epochs=epochs, lr=lr, batchsize=batchsize, accumulation_steps=12, subset_fraction=subsetfraction)#TODO: implement profiling.
         elif user_input.lower() == "profile":
         
             from torch.profiler import profile, ProfilerActivity
