@@ -185,7 +185,9 @@ class biggerbrain(nn.Module):
 
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     num_iter     = random.randint(1, 3)
-                    print(f"Before forward - Allocated: {torch.cuda.memory_allocated()/1e9:.2f}GB")
+                    if self.debugprints == True:
+                        print(f"Before forward - Allocated: {torch.cuda.memory_allocated()/1e9:.2f}GB")
+                        
                     logits, _  = self.forward_training(batch_inputs, max_iters=3, active_iters=num_iter)
 
                     lm_loss = criterion(
@@ -218,80 +220,6 @@ class biggerbrain(nn.Module):
                 f"Loss: {avg_loss:.4f} | "
                 f"Chunk: {chunk_idx+1}/{len(chunks)}")
             scheduler.step(avg_loss)
-                
-                
-    def forward_with_hooks(self, input_ids, iter=3):
-        """
-        Same as forward but returns hidden states at each iteration.
-        Use this for visualization only, not training.
-        """
-        self.eval()
-        batch_size, seq_len = input_ids.size()
-        x    = self.embed(input_ids)
-        mask = torch.triu(
-            torch.ones(seq_len, seq_len, device=self.device) * float('-inf'),
-            diagonal=1
-        )
-
-        mem1 = torch.zeros(batch_size, self.dim1, device=self.device)
-        mem2 = torch.zeros(1, batch_size, self.dim1, device=self.device)
-
-        y, _ = self.layerA1(x, x, x, attn_mask=mask, rope=self.rope)
-
-        last         = y[:, -1:, :]
-        new_state, _ = self.layerMe1(last.squeeze(1), mem1)
-        write_gate   = torch.sigmoid(self.scratchpad_gate(last.squeeze(1)))
-        mem1         = write_gate * new_state + (1.0 - write_gate) * mem1
-        m1_out       = mem1.unsqueeze(1).expand(-1, seq_len, -1)
-        z            = y
-
-        y = self.normPre1(y)
-        o = y
-        y, _ = self.layerPreA1(y, y, y, attn_mask=mask, rope=self.rope)
-        y = y + o
-        y = y + self.layerPre1(y)
-
-        linguistic_anchor = y
-        seq_context, _    = self.layerMe2(y, mem2)
-
-        # ── Capture states at each iteration ────────────────────────────────
-        states = []
-        states.append(y.detach().cpu())  # state before loop = iter 0
-
-        for j in range(iter):
-            last         = y[:, -1:, :]
-            new_state, _ = self.layerMe1(last.squeeze(1), mem1)
-            write_gate   = torch.sigmoid(self.scratchpad_gate(last.squeeze(1)))
-            mem1         = write_gate * new_state + (1.0 - write_gate) * mem1
-            m1_out       = mem1.unsqueeze(1).expand(-1, seq_len, -1)
-
-            residual = y
-            y        = self.norm0(y)
-            y, _     = self.layerA1(y, y, y, attn_mask=mask, rope=self.rope)
-            y        = y + residual
-            y, _     = self.layerMA1(y, m1_out,      m1_out,      attn_mask=mask)
-            y, _     = self.layerMA2(y, seq_context, seq_context, attn_mask=mask)
-
-            y = self.norm1(y);  y = y + self.layerMi1(y)
-            y = self.norm2(y);  o = y
-            y, _ = self.layerA2(y, y, y, attn_mask=mask, rope=self.rope)
-            y = y + o;          y = y + self.layerMi2(y)
-            y = self.norm3(y);  o = y
-            y, _ = self.layerA3(y, y, y, attn_mask=mask, rope=self.rope)
-            y = y + o;          y = y + self.layerMi3(y)
-            y = self.norm4(y);  o = y
-            y, _ = self.layerA4(y, y, y, attn_mask=mask, rope=self.rope)
-            y = y + o;          y = y + self.layerMi4(y)
-
-            y = self.MM1(y, z)
-            y = self.MM2(y, linguistic_anchor)
-            z = y
-
-            states.append(y.detach().cpu())  # capture after each iter
-
-        # states is now a list of [iter+1] tensors, each [batch, seq, 768]
-        return states
-    
     
     def _initialize_weights(self):
         for m in self.modules():
@@ -411,6 +339,8 @@ class biggerbrain(nn.Module):
         """
         batch_size, _ = input_ids.size()
         
+        states = []# for the iter states.
+        
         # enc is assumed to be your tokenizer object initialized globally or passed in
         output = torch.zeros(
             batch_size, outlength, enc.max_token_value + 1, 
@@ -447,6 +377,8 @@ class biggerbrain(nn.Module):
             linguistic_anchor = y
             seq_context, _ = self.layerMe2(y, mem2)
 
+            states.append(y.detach().cpu()) 
+            
             for j in range(iter):
                 residual = y
                 y        = self.norm0(y)
@@ -490,6 +422,7 @@ class biggerbrain(nn.Module):
                 y = self.MM1(y, z)
                 y = self.MM2(y, linguistic_anchor)
                 z = y
+                states.append(y.detach().cpu())  # capture after each iter
 
             _, mem2 = self.layerMe2(y[:, -1:, :], mem2)
 
@@ -498,14 +431,15 @@ class biggerbrain(nn.Module):
             z, _ = self.layerPostA1(z, z, z, attn_mask=mask, rope=self.rope)
             z    = z + o
             z    = z + self.layerPost1(z)
-
+            states.append(z.detach().cpu())
+            
             last_token_logits      = self.layerO1(z[:, -1, :])
             output[:, word, :]     = last_token_logits
 
             next_token = self.pick_word(last_token_logits)
             input_ids  = torch.cat([input_ids, next_token], dim=1)
 
-        return output, None
+        return output, states
 
 def initmodel(device):
     model = biggerbrain(device).to(device)
@@ -513,29 +447,28 @@ def initmodel(device):
     
     return model
 
-def think(prompt, model, max_length=100, iter=3):
+def think(prompt, model, max_length=100, iter=3, top_k=25, temperature=0.8):
     formatted = f"user: {prompt}\nassistant:"
-    input_ids = torch.tensor([enc.encode(formatted, allowed_special={'<|endoftext|>'})]).to(model.device)#._orig_mod.device
+    input_ids = torch.tensor([enc.encode(formatted, 
+                    allowed_special={'<|endoftext|>'})]).to(model.device)
     output = []
-    
-    #model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
     model.eval()
-    
     with torch.no_grad():
         logits, _ = model.forward_chat(input_ids, outlength=max_length, iter=iter)
-        
         for i in range(logits.size(1)):
-            probs = torch.softmax(logits[0, i], dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1).item()
+            # Pass the actual logits slice, not the index i
+            next_token = model.pick_word(
+                logits[0, i, :].unsqueeze(0),  # shape [1, vocab_size]
+                k=top_k, 
+                temperature=temperature
+            ).item()
             
             if next_token == enc.eot_token:
                 break
                 
             output.append(next_token)
-    
     print("Output:", enc.decode(output))
-    
-    
+
 def think_greedy(prompt, model):
     input_ids = torch.tensor([enc.encode(prompt)]).to(model.device)
     model.eval()

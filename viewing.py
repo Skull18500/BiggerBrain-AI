@@ -21,7 +21,7 @@ def visualize_thinking(prompt: str, iter: int = 3, addition = ""):
         input_ids  = torch.tensor([tokens]).to(device)
 
         with torch.no_grad():
-            states = model.forward_with_hooks(input_ids, iter=iter)
+            _ , states = model.forward_chat(input_ids, iter=iter)
 
         # states: list of (iter+1) tensors [1, seq, 768]
         # Flatten to [num_tokens * num_iters, 768] for UMAP
@@ -43,8 +43,8 @@ def visualize_thinking(prompt: str, iter: int = 3, addition = ""):
 
         # ── Build Plotly 3D figure ───────────────────────────────────────────
         fig    = go.Figure()
-        colors = ["#4488ff", "#ff8844", "#44ff88", "#ff44aa"]  # one per iter
-        labels = [f"Pre-loop", "Iter 1", "Iter 2", "Iter 3"][:num_iters]
+        colors = ["#4488ff", "#ff8844", "#44ff88", "#ff44aa", "#b763fc"]  # one per iter
+        labels = [f"Pre-loop", "Iter 1", "Iter 2", "Iter 3","Post-loop"][:num_iters + 1]
 
         for i in range(num_iters):
             x, y, z = coords[i,:,0], coords[i,:,1], coords[i,:,2]

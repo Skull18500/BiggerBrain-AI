@@ -25,7 +25,7 @@ if __name__ == '__main__':
     print(f"Free:      {torch.cuda.mem_get_info()[0]/1e9:.2f} GB")
     
     import subprocess
-    subprocess.run(["nvidia-smi"], shell=True)
+    #subprocess.run(["nvidia-smi"], shell=True)
     
     #-----Vars
     filename = os.path.join(BASE_DIR, "DATA", "pretrain.txt")
@@ -33,11 +33,11 @@ if __name__ == '__main__':
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.00005
+    lr = 0.000025
     train_lr = 0.00001
-    subsetfraction = 0.25
-    epochs = 10
-    batchsize = 16
+    subsetfraction = 0.2
+    epochs = 100
+    batchsize = 24
     chunksize= 512
     maxbatches = 100
     #-----
