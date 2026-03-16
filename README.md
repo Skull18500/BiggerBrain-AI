@@ -1,22 +1,52 @@
-# BiggerBrain-AI
-This is the official repo for the AI MaRT titled "BiggerBrain". It contains code for the whole project. 
-MaRT stands for 'Memory augmented Recurrent Transformer'. It uses a GRU and a custom memory manager to maintain long term dependencies, a RoPE attention based Recurrent Tranformer. I define a Recurrent Transformer as a transformer which has around ~50% of the layers/blocks are in a recurrent loop in which they continue thinking on a token. This means that there are ~30-40% of the layers "single shot" before the loop in the forward pass, and the rest for the post-middle language clarification. It is designed to be a
-maximally smart AI with dense intelligence for its parameter count.
+# BiggerBrain-AI  
+The official repository for BiggerBrain, an implementation of the MoLaMaRT (Mixture of Layers and Memory, augmented Recurrent Transformer) architecture.
 
-The AI_main.py is the file to run if you would like to test this project. It has a few simple commands implemented, but it is not case sensitive:
+What is MoLaMaRT? MoLaMaRT is a hyper-advanced Recurrent Transformer designed for maximal reasoning density per parameter. Key features include:
 
-"debugmode": enables debug printing; needs work
+# Memory: 
+Uses a GRU and a custom memory manager to maintain and gate long-term dependencies.
 
-"train": trains on the file titled "trainfilename" for train_lr Learning rate and all of the other defaults
+# RoPE Attention: 
+Implements Rotary Positional Embeddings for superior relative position awareness.
 
-"quit": ends the program
+# Mixture of Layers (MoL): 
+A novel concept designed for this project. MoL is more parameter-efficient than standard Mixture of Experts (MoE), allowing for a higher layer count without the usual parameter bloat.
 
-"speedtest": tests loading the ai
+# Recurrent Transformer: 
+Approximately 50% of the architecture consists of recurrent blocks that allow the model to "iterate" on a token's representation.20-40% of layers are "single-shot" pre-loop.The remainder are dedicated to post-loop language clarification and output refining.
 
-"pretrain": trains on "filename" for lr learning rate and other defaults
+# Usage:
+To run, run AI_main.py to test the project. It will open the CLI. The CLI is case-insensitive and supports the following commands:
 
-"profile": uses pytorch profiler to test model performance and bottlenecks
+train : Trains on the file specified in trainfilename using default settings.
 
-"filesize": gets filesize of "filename"
+pretrain : Trains on a custom filename with a specified learning rate.
 
-"anything else": It will run the AI on your input.
+debugmode : Enables debug printing (WIP).
+
+profile : Runs the PyTorch profiler to identify performance bottlenecks.
+
+speedtest : Benchmarks model loading and initialization speeds.
+
+filesize : Returns the size of the specified dataset file.
+
+quit : Safely exits the program.
+
+[Any Prompt] : Entering any other text will run the AI on your input.
+
+
+The actual code behind the AI is in biggerbrain.py.
+
+Dependencies:
+
+Python 3.12,
+
+pip,
+
+Pytorch newest version,
+
+tiktoken,
+
+bitsandbytes,
+
+Probably a CUDA compatable GPU?
