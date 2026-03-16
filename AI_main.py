@@ -8,6 +8,8 @@ if __name__ == '__main__':
     import training_utils as t_u
     
     import time
+    
+    import random
     import ai_extras as A_E
     # Also force compile errors to be visible:
     import torch._dynamo
@@ -35,8 +37,8 @@ if __name__ == '__main__':
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
     lr = 0.00005
     train_lr = 0.00001
-    subsetfraction = 0.2
-    epochs = 100
+    subsetfraction = 0.1
+    epochs = 50
     batchsize = 24
     chunksize= 512
     #-----
@@ -76,10 +78,12 @@ if __name__ == '__main__':
         elif user_input.lower() == "profile":
         
             from torch.profiler import profile, ProfilerActivity
-            test_input = torch.zeros(32, 256, dtype=torch.long).to(device)
+            
+            test_input = []
+            test_input.append(random.randint(1, t_u.enc.max_token_value+1))
             with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
                 with torch.no_grad():
-                    model.forward(test_input, iter=3, is_training=False)
+                    model.forward_chat(test_input, 1, 3)
             print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
             
         elif user_input.lower() == "dataset copy":

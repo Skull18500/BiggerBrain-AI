@@ -123,12 +123,15 @@ class biggerbrain(nn.Module):
             betas=(0.9, 0.95), weight_decay=0.05
         )
         
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        subset_size    = int(dataset_size * subset_fraction)  # 0.1
+        batches_per_epoch = subset_size // batchsize          # ~49,642
+        total_epochs   = 100                                  # your epoch count
+        T_max          = batches_per_epoch * total_epochs     # total steps
+
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            mode='min',
-            factor=0.5,      # halve lr when plateauing
-            patience=2,      # wait 2 epochs
-            min_lr=1e-5      # floor
+            T_max   = T_max,
+            eta_min = 1e-5       # floor — never goes below this
         )
 
         best_loss   = 1000.0
@@ -167,8 +170,6 @@ class biggerbrain(nn.Module):
                 ]
                 print(f"  ↻ Reshuffled data chunks for next cycle")
 
-            
-            
             for i, (batch_inputs, batch_targets) in enumerate(loader):
                 if i == 0:
                     print(f"Epoch {epoch} | Chunk {chunk_idx+1}/{len(chunks)} | "
@@ -207,9 +208,10 @@ class biggerbrain(nn.Module):
 
                     torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
                     optimizer.step()
-                    
+                    scheduler.step()
                     optimizer.zero_grad(set_to_none=True)
-                #print(f"finished batch: {i}")
+                    if self.debugprints:
+                        (f"finished batch: {i}")
                 
                 
             avg_loss  = (epoch_loss / batches_run)
@@ -217,7 +219,7 @@ class biggerbrain(nn.Module):
             print(f"[{timestamp}] Epoch {epoch:3d} | "
                 f"Loss: {avg_loss:.4f} | "
                 f"Chunk: {chunk_idx+1}/{len(chunks)}")
-            scheduler.step(avg_loss)
+            
     
     def _initialize_weights(self):
         for m in self.modules():
