@@ -188,21 +188,7 @@ class RMSNorm(nn.Module):
     def forward(self, x):
         # Upcast input to float32 for norm (more numerically stable anyway)
         # then cast result back to whatever dtype x was
-        return torch.rms_norm(x.float(), x.shape[-1:], self.weight, self.eps).to(x.dtype)
-    
-    
-class router(nn.Module):
-    def __init__(self, dim, num_out, top_k = 2):
-        super().__init__()
-        self.L1 = nn.Linear(dim, num_out)
-        self.topk = top_k
-
-    def forward(self, input):
-        x = self.L1(input)
-        y = torch.topk(x, self.topk)
-        
-        z = torch.softmax(y, dim=-1)
-        
+        return torch.rms_norm(x.float(), x.shape[-1:], self.weight, self.eps).to(x.dtype)    
         
 class FlashCrossAttention(nn.Module):
     """
@@ -246,3 +232,118 @@ class FlashCrossAttention(nn.Module):
 
         out = out.transpose(1, 2).contiguous().view(B, Sq, D)
         return self.out_proj(out), None  # None matches nn.MultiheadAttention signature
+    
+class ThinkingRouter(nn.Module):
+    """
+    Routes to different experts based on the QUALITY of current thinking,
+    not just the content. Uses three signals:
+    
+    1. Delta:   how much y changed this iteration (uncertainty signal)
+    2. Drift:   how far y is from the linguistic anchor (grounding signal)  
+    3. Iter:    which iteration we're on (stage signal)
+    
+    These directly describe WHERE we are in the thinking process,
+    making routing decisions interpretable and meaningful.
+    """
+    def __init__(self, dim: int, n_experts: int = 2, max_iter: int = 3):
+        super().__init__()
+        self.n_experts = n_experts
+        
+        # Iteration embedding — gives each iteration a learned "personality"
+        # iter 1 = "first pass", iter 2 = "refinement", iter 3 = "verification"
+        self.iter_embed = nn.Embedding(max_iter, 16)
+        
+        # Project the three signals into routing logits
+        # Input: delta_scalar + drift_scalar + iter_embed(16) = 18 dims
+        self.router = nn.Sequential(
+            nn.Linear(18, 64),
+            SwiGLU(),#used to be Relu
+            nn.Linear(32, n_experts, bias=False)
+        )
+        
+        # Init router to be nearly uniform at start
+        # → experts start with equal load, specialization emerges
+        nn.init.normal_(self.router[0].weight, std=0.001)
+        nn.init.normal_(self.router[2].weight, std=0.001)
+        
+        self.last_weights = None  # store for balancing loss
+    
+    def forward(self,
+                y:                torch.Tensor,   # current hidden state
+                y_prev:           torch.Tensor,   # hidden state from last iter
+                linguistic_anchor: torch.Tensor,  # what the input said
+                iter_idx:         int             # which iteration (0-indexed)
+               ) -> torch.Tensor:
+        """
+        Returns routing weights [batch, n_experts].
+        """
+        # Signal 1: Delta — how much thinking changed this step
+        # High delta = uncertain, still changing a lot
+        # Low delta  = converging, changes are subtle
+        delta = (y - y_prev).norm(dim=-1).mean(dim=-1, keepdim=True)
+        # delta shape: [batch, 1]
+        
+        # Signal 2: Drift — how far current thinking is from the input
+        # High drift = model is thinking abstractly, far from literal input
+        # Low drift  = model is still closely following the input
+        drift = (y - linguistic_anchor).norm(dim=-1).mean(dim=-1, keepdim=True)
+        # drift shape: [batch, 1]
+        
+        # Normalize both signals so they're comparable
+        # Detach to avoid routing gradients affecting main computation
+        delta = delta.detach() / (delta.detach().mean() + 1e-8)
+        drift = drift.detach() / (drift.detach().mean() + 1e-8)
+        
+        # Signal 3: Iteration stage embedding
+        iter_tensor = torch.tensor(iter_idx, device=y.device)
+        iter_emb    = self.iter_embed(iter_tensor)          # [16]
+        iter_emb    = iter_emb.unsqueeze(0).expand(y.size(0), -1)  # [batch, 16]
+        
+        # Combine signals
+        routing_input = torch.cat([delta, drift, iter_emb], dim=-1)  # [batch, 18]
+        logits        = self.router(routing_input)                     # [batch, n_experts]
+        
+        if self.training:
+            weights = torch.softmax(logits, dim=-1)
+        else:
+            # Hard routing at inference
+            idx     = logits.argmax(dim=-1)
+            weights = torch.zeros_like(logits)
+            weights.scatter_(1, idx.unsqueeze(1), 1.0)
+        
+        self.last_weights = weights.mean(0).detach()  # for balance loss
+        return weights
+
+
+class MoLLayer(nn.Module):
+    def __init__(self, dim: int, ffndim: int,
+                 n_experts: int = 2, max_iter: int = 3):
+        super().__init__()
+        self.n_experts = n_experts
+        
+        self.router  = ThinkingRouter(dim, n_experts, max_iter)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(dim, ffndim * 2),
+                SwiGLU(),
+                nn.Linear(ffndim, dim)
+            )
+            for _ in range(n_experts)
+        ])
+    
+    def forward(self,
+                x:                torch.Tensor,
+                x_prev:           torch.Tensor,
+                linguistic_anchor: torch.Tensor,
+                iter_idx:         int
+               ) -> torch.Tensor:
+        
+        weights = self.router(x, x_prev, linguistic_anchor, iter_idx)
+        # weights: [batch, n_experts]
+        
+        # Weighted sum of expert outputs
+        out = sum(
+            weights[:, e].unsqueeze(1).unsqueeze(2) * self.experts[e](x)
+            for e in range(self.n_experts)
+        )
+        return out

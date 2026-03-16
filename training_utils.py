@@ -6,6 +6,9 @@ from datasets import load_dataset
 from itertools import islice
 import random
 import os
+import re
+import random
+from tqdm import tqdm
 
 
 enc = tiktoken.get_encoding("gpt2")
@@ -480,239 +483,6 @@ def build_pretrain(out_path: str):
     print(f"   File size : {size_gb:.2f} GB")
 
 
-# ─────────────────────────────────────────────
-#  FINETUNING DATASETS
-# ─────────────────────────────────────────────
-
-def format_conversation(user_msg: str, assistant_msg: str) -> str:
-    """
-    Format a conversation pair to match the model's think() function format.
-    This MUST match: f"user: {prompt}\nassistant:"
-    """
-    user_msg      = clean_text(user_msg)
-    assistant_msg = clean_text(assistant_msg)
-    if not user_msg or not assistant_msg:
-        return ""
-    return f"user: {user_msg}\nassistant: {assistant_msg}"
-
-
-def build_finetune(out_path: str):
-    print("\n" + "="*50)
-    print("  BUILDING FINETUNING DATA")
-    print("="*50)
-
-    total_pairs = 0
-
-    with open(out_path, "w", encoding="utf-8") as f:
-
-        # ── 1. SmolTalk ─────────────────────────────────
-        # High quality conversational data.
-        # Teaches the model to be helpful and coherent in chat format.
-        ds = safe_load(
-            "SmolTalk",
-            path="HuggingFaceTB/smoltalk",
-            name="all",
-            split="train"
-        )
-        if ds:
-            limit = LIMITS["smoltalk"]
-            desc  = f"SmolTalk (limit={limit})"
-            for i, sample in enumerate(tqdm(ds, desc=desc, total=limit)):
-                if limit and i >= limit:
-                    break
-                messages = sample.get("messages", [])
-                # Extract consecutive user/assistant pairs
-                for j in range(len(messages) - 1):
-                    if (messages[j].get("role") == "user" and
-                        messages[j+1].get("role") == "assistant"):
-                        pair = format_conversation(
-                            messages[j]["content"],
-                            messages[j+1]["content"]
-                        )
-                        if pair:
-                            f.write(pair)
-                            write_separator(f)
-                            total_pairs += 1
-
-        # ── 2. Orca Math ────────────────────────────────
-        # Math word problems with chain-of-thought reasoning.
-        # Critical for teaching the model step-by-step thinking.
-        ds = safe_load(
-            "Orca Math",
-            path="microsoft/orca-math-word-problems-200k",
-            split="train"
-        )
-        if ds:
-            limit = LIMITS["orca_math"]
-            desc  = f"Orca Math (limit={limit})"
-            for i, sample in enumerate(tqdm(ds, desc=desc, total=limit)):
-                if limit and i >= limit:
-                    break
-                question = sample.get("question", "")
-                answer   = sample.get("answer", "")
-                pair = format_conversation(question, answer)
-                if pair:
-                    f.write(pair)
-                    write_separator(f)
-                    total_pairs += 1
-
-        # ── 3. GSM8K ────────────────────────────────────
-        # Grade school math. Small but high quality reasoning dataset.
-        # Great for teaching the model basic arithmetic logic.
-        ds = safe_load(
-            "GSM8K",
-            path="openai/gsm8k",
-            name="main",
-            split="train"
-        )
-        if ds:
-            limit = LIMITS["gsm8k"]
-            desc  = f"GSM8K (limit={'all' if not limit else limit})"
-            for i, sample in enumerate(tqdm(ds, desc=desc)):
-                if limit and i >= limit:
-                    break
-                question = sample.get("question", "")
-                answer   = sample.get("answer", "")
-                pair = format_conversation(question, answer)
-                if pair:
-                    f.write(pair)
-                    write_separator(f)
-                    total_pairs += 1
-
-    size_gb = os.path.getsize(out_path) / (1024**3)
-    print(f"\n✅ Finetuning data saved: {out_path}")
-    print(f"   Pairs     : {total_pairs:,}")
-    print(f"   File size : {size_gb:.2f} GB")
-
-
-# ─────────────────────────────────────────────
-#  TOKENIZATION HELPER (optional but useful)
-# ─────────────────────────────────────────────
-
-def estimate_tokens(file_path: str):
-    """
-    Rough token count estimate without loading entire file.
-    GPT-2 averages ~4 characters per token.
-    """
-    size_bytes = os.path.getsize(file_path)
-    chars      = size_bytes  # UTF-8 ASCII text ≈ 1 byte/char
-    tokens     = chars / 4
-    print(f"   Estimated tokens: {tokens/1e9:.2f}B  ({tokens/1e6:.0f}M)")
-
-
-# ─────────────────────────────────────────────
-#  DATALOADER HELPER
-#  Drop this into your training file to use the
-#  text files as a streaming dataset.
-# ─────────────────────────────────────────────
-
-DATALOADER_SNIPPET = '''
-# ── How to use the output files in your training loop ──────────────────────
-#
-# In your training script:
-#
-# import tiktoken
-# import torch
-# from torch.utils.data import IterableDataset, DataLoader
-#
-# enc = tiktoken.get_encoding("gpt2")
-# SEP_TOKEN = enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-# SEQ_LEN   = 1024  # match your model's self.sequencelength
-#
-# class TextFileDataset(IterableDataset):
-#     def __init__(self, path, seq_len=SEQ_LEN):
-#         self.path    = path
-#         self.seq_len = seq_len
-#
-#     def __iter__(self):
-#         buffer = []
-#         with open(self.path, "r", encoding="utf-8") as f:
-#             for line in f:
-#                 tokens = enc.encode(line, allowed_special={"<|endoftext|>"})
-#                 buffer.extend(tokens)
-#                 # Yield seq_len+1 chunks (input + target)
-#                 while len(buffer) >= self.seq_len + 1:
-#                     chunk = buffer[:self.seq_len + 1]
-#                     x = torch.tensor(chunk[:-1], dtype=torch.long)
-#                     y = torch.tensor(chunk[1:],  dtype=torch.long)
-#                     yield x, y
-#                     buffer = buffer[self.seq_len:]  # slide window
-#
-# # Usage:
-# pretrain_ds = TextFileDataset("training_data/pretrain_data.txt")
-# loader      = DataLoader(pretrain_ds, batch_size=32, num_workers=4)
-# model.trainingloop(loader, epochs=1)
-'''
-
-
-# ─────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────
-
-#if __name__ == "__main__":
-    #os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    #pretrain_path  = os.path.join(OUTPUT_DIR, "pretrain_data.txt")
-    #finetune_path  = os.path.join(OUTPUT_DIR, "finetune_data.txt")
-    #snippet_path   = os.path.join(OUTPUT_DIR, "dataloader_snippet.py")
-
-    # Build datasets
-    #build_pretrain(pretrain_path)
-    #build_finetune(finetune_path)
-
-    # Print token estimates
-    #print("\n── Token Estimates ──────────────────────────────")
-    #print(f"Pretrain:")
-    #estimate_tokens(pretrain_path)
-    #print(f"Finetune:")
-    #estimate_tokens(finetune_path)
-
-    ## Save the dataloader snippet
-    #with open(snippet_path, "w") as f:
-        #f.write(DATALOADER_SNIPPET.strip())
-    #print(f"\n── Saved dataloader snippet: {snippet_path}")
-
-    #print("\n" + "="*50)
-    #print("  ALL DONE")
-    #print("="*50)
-    ##print(f"  {finetune_path}")
-    #print(f"  {snippet_path}")
-    #print()
-    #print("  Training order:")
-    #print("  1. python train.py --data pretrain_data.txt --lr 3e-4")
-    #print("  2. python train.py --data finetune_data.txt --lr 3e-5")
-    #print()
-    #print("  Upload to your rented 5090 with:")
-    #print("  rsync -avz training_data/ user@<instance-ip>:~/data/")
-    
-    
-
-
-"""
-BiggerBrain Dataset Builder
-============================
-Builds TWO files:
-
-  data/pretrain.txt   — clean prose only (books, wiki, stories)
-                        NO chat format mixed in
-                        Use this for stage 1 training at lr=3e-4
-
-  data/finetune.txt   — chat format only (SmolTalk, Orca, GSM8k)
-                        formatted as "user: ...\nassistant: ..."
-                        Use this for stage 2 training at lr=3e-5
-
-Install deps:
-  pip install datasets tqdm
-
-Run:
-  python build_dataset.py
-"""
-
-import os
-import re
-import random
-from datasets import load_dataset
-from tqdm import tqdm
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONFIG
@@ -1023,6 +793,17 @@ def tokenize_to_binary(txt_path: str, chunk_size: int = 1_000_000):
     print(f"Output: {bin_path}")
     print("Tokenizing...")
 
+    bin_path = os.path.splitext(txt_path)[0] + ".bin"
+    
+    # SAFETY — never overwrite a file larger than 1GB
+    if os.path.exists(bin_path):
+        existing_gb = os.path.getsize(bin_path) / 1e9
+        if existing_gb > 1.0:
+            print(f"Bin file already exists ({existing_gb:.2f} GB). Skipping.")
+            print(f"Delete it manually if you want to regenerate.")
+            return bin_path
+    
+    
     total_tokens = 0
     buffer       = []
 
@@ -1056,3 +837,91 @@ def tokenize_to_binary(txt_path: str, chunk_size: int = 1_000_000):
     print(f"  Saved to     : {bin_path}")
 
     return bin_path
+
+
+
+
+
+
+def myfileimprovements(path):
+    with open(path, mode="a"):
+        
+        dataset = load_dataset()#no clue about how this function works.
+        
+        write(dataset, path)
+        
+
+
+def append_dataset_to_file(
+    output_path: str,
+    hf_dataset_name: str,
+    text_field: str,        # the key that contains the text
+    config_name: str = None,
+    split: str = "train",
+    max_samples: int = None,
+    min_length: int = 100
+):
+    """
+    Fetches a HuggingFace dataset and appends its text to a file.
+    
+    Args:
+        output_path:      path to your pretrain.txt
+        hf_dataset_name:  the HuggingFace dataset name
+        text_field:       which key in the dataset dict contains the text
+        config_name:      optional subset name (some datasets need this)
+        split:            "train", "test", or "validation"
+        max_samples:      stop after this many examples (None = take all)
+        min_length:       skip examples shorter than this
+    
+    Example usage:
+        append_dataset_to_file(
+            "pretrain.txt",
+            "roneneldan/TinyStories",
+            text_field="text"
+        )
+    """
+    # Load the dataset — streaming means it never fully downloads
+    if config_name:
+        ds = load_dataset(hf_dataset_name, config_name,
+                         split=split, streaming=True,
+                         trust_remote_code=True)
+    else:
+        ds = load_dataset(hf_dataset_name,
+                         split=split, streaming=True,
+                         trust_remote_code=True)
+
+    written   = 0
+    skipped   = 0
+
+    # "a" mode = append to file (doesn't overwrite existing content)
+    with open(output_path, "a", encoding="utf-8") as f:
+        for i, example in enumerate(ds):
+            if max_samples and i >= max_samples:
+                break
+
+            # Get the text from whatever field this dataset uses
+            text = example.get(text_field, "")
+
+            # Clean up
+            if not isinstance(text, str):
+                skipped += 1
+                continue
+            text = text.strip()
+
+            # Skip very short examples
+            if len(text) < min_length:
+                skipped += 1
+                continue
+
+            # Write text + separator
+            f.write(text)
+            f.write(f"\n{SEPARATOR}\n")
+            written += 1
+
+            # Progress update every 10k examples
+            if written % 10_000 == 0:
+                size_gb = os.path.getsize(output_path) / 1e9
+                print(f"  Written: {written:,} | Skipped: {skipped:,} | "
+                      f"File size: {size_gb:.2f}GB")
+
+    print(f"\nDone. Added {written:,} examples to {output_path}")

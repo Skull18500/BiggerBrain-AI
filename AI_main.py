@@ -4,7 +4,7 @@ if __name__ == '__main__':
     import os
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch
-    from biggerbrain import think, initmodel, think_greedy # Import the specific class
+    from biggerbrain import think, initmodel # Import the specific class
     import training_utils as t_u
     
     import time
@@ -33,13 +33,12 @@ if __name__ == '__main__':
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.000025
+    lr = 0.00005
     train_lr = 0.00001
     subsetfraction = 0.2
     epochs = 100
     batchsize = 24
     chunksize= 512
-    maxbatches = 100
     #-----
 
     model = initmodel(device)

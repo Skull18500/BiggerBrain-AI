@@ -11,3 +11,5 @@ __pycache__/
 *.pt
 *.pth
 *.bin
+
+!requirements.txt
