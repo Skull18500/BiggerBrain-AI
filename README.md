@@ -13,9 +13,9 @@ than a single deep forward pass.
 ### Architecture Overview
 ```
 Input → Linguistic Blocks → [Thinking Loop × N] → Output Block → Logits
-              ↑                      ↑
-         (single pass)        (shared weights,
-         syntax/morphology     run 1-3 times)
+              ↑                      ↑                  ↑
+         (single pass)        (shared weights,    (single pass)
+         syntax/morphology     run 1-3 times)     Formating/decoding
 ```
 
 ### Key Features
@@ -106,4 +106,4 @@ Currently in pretraining phase on ~6B tokens of mixed text data
 
 ## Author
 
-Built by a 13-year-old ML enthusiast.
+Built by a 13-year-old ML enthusiast. Youtube : [channel](https://www.youtube.com/@skull18500/videos)
