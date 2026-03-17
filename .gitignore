@@ -11,5 +11,7 @@ __pycache__/
 *.pt
 *.pth
 *.bin
+#the auto generated .html
 *.html
+
 !requirements.txt
