@@ -97,7 +97,7 @@ class biggerbrain(nn.Module):
         
         return word_id
 
-    def trainingloop(self, data, epochs=100, lr=3e-4, batchsize=32,
+    def trainingloop(self, data, epochs=50, lr=3e-4, batchsize=32,
                  accumulation_steps=4, max_batches=None, 
                  subset_fraction=1.0):   # ← add this parameter
         self.train()

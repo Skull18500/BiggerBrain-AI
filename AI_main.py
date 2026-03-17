@@ -38,7 +38,7 @@ if __name__ == '__main__':
     lr = 0.00005
     train_lr = 0.00001
     subsetfraction = 0.1
-    epochs = 50
+    epochs = 20
     batchsize = 24
     chunksize= 512
     #-----
@@ -53,7 +53,6 @@ if __name__ == '__main__':
     while True:
         user_input = input("You: ")
         if user_input.lower() == "quit":
-        
             break
         elif user_input.lower() == "view":
             model.forward
