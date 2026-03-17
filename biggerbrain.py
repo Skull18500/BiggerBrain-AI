@@ -27,7 +27,7 @@ class biggerbrain(nn.Module):
         super(biggerbrain, self).__init__()
         self.dim = 768
         self.dim1 = 768
-        self.ffndim = int(self.dim1 * 2)# for the first and last layers.
+        self.ffndim = int(self.dim1 * 2)
         self.heads = 8
         self.sequencelength = 512
         self.device = device
@@ -81,20 +81,35 @@ class biggerbrain(nn.Module):
         
         self.layerO1.weight = self.embed.weight  # tied weights
 
-    def pick_word(self, output, k=50, temperature=0.8):
-        # output shape: (batch_size, vocab_size)
-        # 1. Apply Temperature (higher = more random, lower = more confident)
+    def pick_word(self, output, k=50, temperature=0.8,
+              prev_tokens=None, rep_penalty=1.5):
         logits = output / (temperature + 1e-8)
-        
-        # 2. Top-K filtering
+    
+        # Permanently blacklist chat-format artifact tokens
+        # These have high probability from training data contamination
+        # but should never appear in normal prose output
+        BAD_TOKENS = [
+            25,    # ":"  single colon
+            3712,     # "::" double colon  
+            1058,  # ":" alternate encoding
+        ]
+        for tok in BAD_TOKENS:
+            if tok < logits.size(-1):
+                logits[0, tok] = float('-inf')
+    
+        # Repetition penalty
+        if prev_tokens is not None:
+            for tok in set(prev_tokens[-64:]):
+                logits[0, tok] /= rep_penalty
+    
+        # Top-K filtering
         v, _ = torch.topk(logits, min(k, logits.size(-1)))
-        # Any logit smaller than the K-th value gets set to -inf
         logits[logits < v[:, [-1]]] = float('-inf')
-        
-        # 3. Softmax and Sample
+    
+        # Sample
         probabilities = torch.softmax(logits, dim=-1)
         word_id = torch.multinomial(probabilities, num_samples=1)
-        
+    
         return word_id
 
     def trainingloop(self, data, epochs=50, lr=3e-4, batchsize=32,
@@ -118,15 +133,26 @@ class biggerbrain(nn.Module):
         ]
 
         criterion   = nn.CrossEntropyLoss(ignore_index=-1)
-        optimizer = bnb.optim.AdamW8bit(
-            self.parameters(), lr=lr,
-            betas=(0.9, 0.95), weight_decay=0.05
+        optimizer = bnb.optim.AdamW8bit([
+            {
+            'params': [p for n, p in self.named_parameters() 
+                    if 'embed' not in n and 'layerO1' not in n],
+            'weight_decay': 0.05
+            },
+            {
+            'params': [p for n, p in self.named_parameters() 
+                   if 'embed' in n or 'layerO1' in n],
+            'weight_decay': 0.0
+            }
+        ],
+        lr=lr,
+        betas=(0.9, 0.95)
+        # no weight_decay here — it's set per group above
         )
         
-        subset_size    = int(dataset_size * subset_fraction)  # 0.1
-        batches_per_epoch = subset_size // batchsize          # ~49,642
-        total_epochs   = 100                                  # your epoch count
-        T_max          = batches_per_epoch * total_epochs     # total steps
+        batches_per_epoch = subset_size // batchsize
+        total_updates_per_epoch = batches_per_epoch // accumulation_steps
+        T_max = total_updates_per_epoch * epochs
 
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
@@ -136,12 +162,12 @@ class biggerbrain(nn.Module):
 
         best_loss   = 1000.0
         
-        #self.forward_training = torch.compile(self.forward_training, backend ='eager')#, options=['shape_padding':True]
+        #self.forward_training = torch.compile(self.forward_training, backend ='eager')#, options=['shape_padding':True] model
         
         for epoch in range(epochs):
             
-            torch.cuda.empty_cache()  # ← add this line
-            torch.cuda.reset_peak_memory_stats()
+            #torch.cuda.empty_cache()  # ← add this line
+            #torch.cuda.reset_peak_memory_stats()
             
             epoch_loss  = 0.0
             batches_run = 0
@@ -174,8 +200,11 @@ class biggerbrain(nn.Module):
                 if i == 0:
                     print(f"Epoch {epoch} | Chunk {chunk_idx+1}/{len(chunks)} | "
                         f"Starting training...")
-                if (i + 1) % 20 == 0:
-                    print(f"Epoch {epoch} | Batch {i} | loss={lm_loss.detach().item():.4f}")
+                if i % 500 == 0 and i > 0:
+                    std = self.embed.weight.std().item()
+                    print(f"  Embed std: {std:.4f}  (healthy = ~0.02, bad = <0.005)")
+                    if std < 0.005:
+                        print("  WARNING: embedding collapse detected!")
 
 
 
@@ -183,27 +212,30 @@ class biggerbrain(nn.Module):
                 batch_targets = batch_targets.to(self.device, non_blocking=True)
 
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                    num_iter     = random.randint(1, 3)
-                    if self.debugprints == True:
-                        print(f"Before forward - Allocated: {torch.cuda.memory_allocated()/1e9:.2f}GB")
-                        
-                    logits, _  = self.forward_training(batch_inputs, max_iters=3, active_iters=num_iter)
-
+                    num_iter  = random.randint(1, 3)
+                    logits, _ = self.forward_training(batch_inputs, 
+                                      max_iters=3, 
+                                      active_iters=num_iter)
                     lm_loss = criterion(
                         logits.view(-1, enc.max_token_value + 1),
                         batch_targets.reshape(-1)
                     )
-                    loss         = lm_loss / accumulation_steps
-                    epoch_loss  += lm_loss.detach().item()
-                    batches_run += 1
+    
+                    # MoL balance loss — prevents expert collapse
+                    balance_loss = torch.tensor(0.0, device=self.device)
+                    for module in self.modules():
+                        if isinstance(module, AI_ex.MoLLayer):
+                            if module.router.last_weights is not None:
+                                probs = module.router.last_weights
+                                ideal = torch.ones_like(probs) / module.n_experts
+                                balance_loss = balance_loss + ((probs - ideal) ** 2).sum()
+
+                    loss = (lm_loss + 0.1 * balance_loss) / accumulation_steps
 
                 loss.backward()
 
-                if (i) % 5 == 0:
-                    if batchloss > lm_loss.detach().item():
-                        batchloss = lm_loss.detach().item()
-                        torch.save(self.state_dict(), "model_best.pth")
-                        print(f"saved best batch weights loss: {batchloss:.4f}")
+                #if (i) % 5 == 0:
+
                 if (i) % accumulation_steps == 0:
 
                     torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
@@ -212,8 +244,13 @@ class biggerbrain(nn.Module):
                     optimizer.zero_grad(set_to_none=True)
                     if self.debugprints:
                         (f"finished batch: {i}")
-                
-                
+                    if batchloss > lm_loss.detach().item():
+                        batchloss = lm_loss.detach().item()
+                        torch.save(self.state_dict(), "model_best.pth")
+                        print(f"saved best batch weights loss: {batchloss:.4f}")
+                if (i + 1) % 20 == 0:
+                    print(f"Epoch {epoch} | Batch {i} | loss={lm_loss.detach().item():.4f}")
+                    
             avg_loss  = (epoch_loss / batches_run)
             timestamp = datetime.now().strftime("%H:%M:%S")
             print(f"[{timestamp}] Epoch {epoch:3d} | "
@@ -341,8 +378,7 @@ class biggerbrain(nn.Module):
 
         return self.layerO1(z), torch.tensor(float(active_iters))
     
-    
-    def forward_chat(self, input_ids, outlength=1, iter=3, top_k=50, temperature=0.8):
+    def forward_chat(self, input_ids, outlength=1, iter=3, top_k=10, temperature=0.8):
         """
         Dynamic loop for chat inference. Does not compute gradients.
         Allows for flexible thought-depth on the fly.
@@ -350,7 +386,7 @@ class biggerbrain(nn.Module):
         batch_size, _ = input_ids.size()
         states = [] # for the iter states.
         generated_tokens = [] # Store the actual token IDs here
-        
+        prev_tokens = input_ids[0].tolist()
         mem1 = torch.zeros(batch_size, self.dim1, device=self.device)
         mem2 = torch.zeros(1, batch_size, self.dim1, device=self.device)
 
@@ -450,7 +486,14 @@ class biggerbrain(nn.Module):
             last_token_logits = self.layerO1(z[:, -1, :])
             
             # --- FIX: Pick the word HERE, once. ---
-            next_token = self.pick_word(last_token_logits, k=top_k, temperature=temperature)
+            next_token = self.pick_word(
+                last_token_logits,
+                k=top_k,
+                temperature=temperature,
+                prev_tokens=prev_tokens,
+                rep_penalty=3.0
+            )
+            prev_tokens.append(next_token.item())
             
             # Stop early if the model generates the end-of-text token
             if next_token.item() == enc.eot_token:
@@ -482,5 +525,6 @@ def think(prompt, model, max_length=100, iter=3, top_k=25, temperature=0.8):
             top_k=top_k, 
             temperature=temperature
         )
+        
         
     print("Output:", enc.decode(generated_tokens))

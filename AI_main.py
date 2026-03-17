@@ -22,11 +22,12 @@ if __name__ == '__main__':
 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
-    print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
-    print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
-    print(f"Free:      {torch.cuda.mem_get_info()[0]/1e9:.2f} GB")
+    if device == "cuda":
+        print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+        print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
+        print(f"Free:      {torch.cuda.mem_get_info()[0]/1e9:.2f} GB")
     
-    import subprocess
+    #import subprocess
     #subprocess.run(["nvidia-smi"], shell=True)
     
     #-----Vars
@@ -35,11 +36,11 @@ if __name__ == '__main__':
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.00005
+    lr = 0.0002
     train_lr = 0.00001
     subsetfraction = 0.1
-    epochs = 20
-    batchsize = 24
+    epochs = 2
+    batchsize = 64
     chunksize= 512
     #-----
 
@@ -54,6 +55,9 @@ if __name__ == '__main__':
         user_input = input("You: ")
         if user_input.lower() == "quit":
             break
+        elif user_input.lower() == "cpu":
+            model = model.to_device("cpu")
+            
         elif user_input.lower() == "view":
             model.forward
         elif user_input.lower() == "debug mode" or user_input.lower() == "debugmode":
@@ -72,8 +76,7 @@ if __name__ == '__main__':
                 pretrain_ds = A_E.StreamDataset(bin_file="C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\pretrain\\pretraining.bin", seq_len=chunksize)
                 print(f"Dataset loaded: {len(pretrain_ds)} samples")
             
-        
-            model.trainingloop(pretrain_ds, epochs=epochs, lr=lr, batchsize=batchsize, accumulation_steps=12, subset_fraction=subsetfraction)#TODO: implement profiling.
+            model.trainingloop(pretrain_ds, epochs=epochs, lr=lr, batchsize=batchsize, accumulation_steps=6, subset_fraction=subsetfraction)#TODO: implement profiling.
         elif user_input.lower() == "profile":
         
             from torch.profiler import profile, ProfilerActivity
@@ -132,7 +135,49 @@ if __name__ == '__main__':
         elif user_input.lower() == "greed":
             think_greedy("The old man", model)
             think_greedy("user: hello\nassistant:", model)
-        else:
+        elif user_input.lower() == "check":
+            model.eval()
+            with torch.no_grad():
+                prompt = "The man ran"
+                ids = torch.tensor([t_u.enc.encode(prompt)]).to(model.device)
+                w = model.embed(ids)
+                mask = torch.triu(
+                torch.ones(ids.size(1), ids.size(1), 
+                      device=model.device) * float('-inf'),
+                diagonal=1
+                )
+            y, _ = model.layerA1(w, w, w, attn_mask=mask, rope=model.rope)
+            out = model.layerO1(y[:, -1, :])
+            top10 = out[0].topk(10)
+            print("Top 10 predicted next tokens:")
+            for val, idx in zip(top10.values, top10.indices):
+                tok = t_u.enc.decode([idx.item()])
+                print(f"  '{tok}' (id={idx.item()}) = {val.item():.3f}")
         
+            print(f"\nEmbed std: {model.embed.weight.std().item():.4f}")
+            
+        elif user_input.lower() == "mol":
+            model.eval()
+            with torch.no_grad():
+                prompt = "The man ran"
+                ids = torch.tensor([t_u.enc.encode(prompt)]).to(model.device)
+                w = model.embed(ids)
+            # Run one forward pass and check routing weights
+            for module in model.modules():
+                if isinstance(module, A_E.MoLLayer):
+                    if module.router.last_weights is not None:
+                        w = module.router.last_weights
+                        print(f"Expert weights: {w.tolist()}")
+                        # Healthy: [0.6, 0.4] or [0.7, 0.3]
+                        # Collapsed: [0.99, 0.01] ← one expert dominates
+        elif user_input.lower() == "resetmol":
+            for module in model.modules():
+                if isinstance(module, A_E.ThinkingRouter):
+                    A_E.nn.init.normal_(module.router[0].weight, std=0.01)
+                    A_E.nn.init.normal_(module.router[2].weight, std=0.01)
+                    A_E.nn.init.zeros_(module.router[0].bias) if hasattr(module.router[0], 'bias') else None
+            print("Router weights reset")
+            torch.save(model.state_dict(), "model_best.pth")
+        else:
             with torch.no_grad():
                 think(user_input, model, iter=3)

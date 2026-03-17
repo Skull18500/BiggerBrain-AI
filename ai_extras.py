@@ -248,7 +248,7 @@ class ThinkingRouter(nn.Module):
     def __init__(self, dim: int, n_experts: int = 2, max_iter: int = 3):
         super().__init__()
         self.n_experts = n_experts
-        
+        self.max_iter = max_iter
         # Iteration embedding — gives each iteration a learned "personality"
         # iter 1 = "first pass", iter 2 = "refinement", iter 3 = "verification"
         self.iter_embed = nn.Embedding(max_iter, 16)
@@ -257,7 +257,7 @@ class ThinkingRouter(nn.Module):
         # Input: delta_scalar + drift_scalar + iter_embed(16) = 18 dims
         self.router = nn.Sequential(
             nn.Linear(18, 64),
-            SwiGLU(),#used to be Relu
+            SwiGLU(),
             nn.Linear(32, n_experts, bias=False)
         )
         
@@ -295,8 +295,11 @@ class ThinkingRouter(nn.Module):
         drift = drift.detach() / (drift.detach().mean() + 1e-8)
         
         # Signal 3: Iteration stage embedding
-        iter_tensor = torch.tensor(iter_idx, device=y.device)
-        iter_emb    = self.iter_embed(iter_tensor)          # [16]
+        iter_clamped = min(iter_idx if isinstance(iter_idx, int) 
+                   else iter_idx.item(), 
+                   self.max_iter - 1)  # clamp to valid range
+        iter_tensor  = torch.as_tensor(iter_clamped, device=y.device, dtype=torch.long)
+        iter_emb     = self.iter_embed(iter_tensor)
         iter_emb    = iter_emb.unsqueeze(0).expand(y.size(0), -1)  # [batch, 16]
         
         # Combine signals
@@ -304,14 +307,15 @@ class ThinkingRouter(nn.Module):
         logits        = self.router(routing_input)                     # [batch, n_experts]
         
         if self.training:
-            weights = torch.softmax(logits, dim=-1)
+        
+            weights = F.gumbel_softmax(logits, tau=0.5, hard=False)
         else:
             # Hard routing at inference
             idx     = logits.argmax(dim=-1)
             weights = torch.zeros_like(logits)
             weights.scatter_(1, idx.unsqueeze(1), 1.0)
         
-        self.last_weights = weights.mean(0).detach()  # for balance loss
+        self.last_weights = weights.mean(0)  # for balance loss
         return weights
 
 
