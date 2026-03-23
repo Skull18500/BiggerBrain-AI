@@ -1,14 +1,11 @@
 
 if __name__ == '__main__':
-    
     import os
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch
     from biggerbrain import think, initmodel # Import the specific class
     import training_utils as t_u
-    
     import time
-    
     import random
     import ai_extras as A_E
     # Also force compile errors to be visible:
@@ -40,7 +37,7 @@ if __name__ == '__main__':
     train_lr = 0.00001
     subsetfraction = 0.1
     epochs = 2
-    batchsize = 64
+    batchsize = 48
     chunksize= 512
     #-----
 
@@ -95,6 +92,10 @@ if __name__ == '__main__':
         
             model.load_state_dict(torch.load("C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\model_best.pth", weights_only=True))# .pth or .pt?
             print("Weights loaded!")
+            state_dict = torch.load("model_best.pth")
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            print(f"Missing keys: {missing}")
+            print(f"Unexpected keys: {unexpected}")
         elif user_input.lower() == "save":
         
             torch.save(model.state_dict(), "C:\\Users\\chand\\OneDrive\\Documents\\pytorchplayground\\AI\\manual_save.pt")
@@ -159,17 +160,28 @@ if __name__ == '__main__':
         elif user_input.lower() == "mol":
             model.eval()
             with torch.no_grad():
-                prompt = "The man ran"
-                ids = torch.tensor([t_u.enc.encode(prompt)]).to(model.device)
-                w = model.embed(ids)
-            # Run one forward pass and check routing weights
+                test_prompt = "The man ran"
+                ids = torch.tensor([t_u.enc.encode(test_prompt)]).to(model.device)
+        
+            # Force soft routing temporarily
             for module in model.modules():
+                if isinstance(module, A_E.ThinkingRouter):
+                    module.training = True
+                
+            model.forward_chat(ids, outlength=1, iter=3)
+        
+            # Check weights
+            for name, module in model.named_modules():
                 if isinstance(module, A_E.MoLLayer):
                     if module.router.last_weights is not None:
                         w = module.router.last_weights
-                        print(f"Expert weights: {w.tolist()}")
-                        # Healthy: [0.6, 0.4] or [0.7, 0.3]
-                        # Collapsed: [0.99, 0.01] ← one expert dominates
+                        print(f"{name}: [{w[0]:.3f}, {w[1]:.3f}]")
+        
+            # Reset back to eval
+            for module in model.modules():
+                if isinstance(module, A_E.ThinkingRouter):
+                    module.training = False
+            model.train()
         elif user_input.lower() == "resetmol":
             for module in model.modules():
                 if isinstance(module, A_E.ThinkingRouter):

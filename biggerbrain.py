@@ -223,14 +223,11 @@ class biggerbrain(nn.Module):
     
                     # MoL balance loss — prevents expert collapse
                     balance_loss = torch.tensor(0.0, device=self.device)
-                    for module in self.modules():
+                    for name, module in self.named_modules():
                         if isinstance(module, AI_ex.MoLLayer):
-                            if module.router.last_weights is not None:
-                                probs = module.router.last_weights
-                                ideal = torch.ones_like(probs) / module.n_experts
-                                balance_loss = balance_loss + ((probs - ideal) ** 2).sum()
-
-                    loss = (lm_loss + 0.1 * balance_loss) / accumulation_steps
+                            if hasattr(module, 'balance_loss') and module.balance_loss is not None:
+                                balance_loss = balance_loss + module.balance_loss
+                    loss = (lm_loss + 0.2 * balance_loss) / accumulation_steps
 
                 loss.backward()
 

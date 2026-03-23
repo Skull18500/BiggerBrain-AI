@@ -307,15 +307,17 @@ class ThinkingRouter(nn.Module):
         logits        = self.router(routing_input)                     # [batch, n_experts]
         
         if self.training:
-        
-            weights = F.gumbel_softmax(logits, tau=0.5, hard=False)
+                weights = torch.softmax(logits, dim=-1)
+                if self.last_weights is None:
+                    self.last_weights = weights.mean(0)
+                
         else:
             # Hard routing at inference
             idx     = logits.argmax(dim=-1)
             weights = torch.zeros_like(logits)
             weights.scatter_(1, idx.unsqueeze(1), 1.0)
         
-        self.last_weights = weights.mean(0)  # for balance loss
+        
         return weights
 
 
@@ -335,17 +337,15 @@ class MoLLayer(nn.Module):
             for _ in range(n_experts)
         ])
     
-    def forward(self,
-                x:                torch.Tensor,
-                x_prev:           torch.Tensor,
-                linguistic_anchor: torch.Tensor,
-                iter_idx:         int
-               ) -> torch.Tensor:
-        
+    def forward(self,x:torch.Tensor,x_prev:torch.Tensor,linguistic_anchor: torch.Tensor,iter_idx:int):# -> torch.Tensor
+        #self.router.last_weights = None
+
         weights = self.router(x, x_prev, linguistic_anchor, iter_idx)
-        # weights: [batch, n_experts]
-        
-        # Weighted sum of expert outputs
+    
+        # Compute balance loss here while graph is alive
+        ideal = torch.ones_like(weights.mean(0)) / self.n_experts
+        self.balance_loss = ((weights.mean(0) - ideal) ** 2).sum()
+    
         out = sum(
             weights[:, e].unsqueeze(1).unsqueeze(2) * self.experts[e](x)
             for e in range(self.n_experts)
