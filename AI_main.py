@@ -3,7 +3,7 @@ if __name__ == '__main__':
     import os
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch
-    from biggerbrain import think, initmodel # Import the specific class
+    from biggerbrain import think, initmodel
     import training_utils as t_u
     import time
     import random
@@ -14,7 +14,9 @@ if __name__ == '__main__':
     torch._dynamo.config.verbose = True
     torch.set_float32_matmul_precision('medium')
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")# this model is optimized for CUDA. It may not run on CPU.
+    if device.type == "cpu":
+        print("Warning: CUDA not available, running on CPU. It may not work, it is untested.")
     print("using device:",device)
 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,19 +26,16 @@ if __name__ == '__main__':
         print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
         print(f"Free:      {torch.cuda.mem_get_info()[0]/1e9:.2f} GB")
     
-    #import subprocess
-    #subprocess.run(["nvidia-smi"], shell=True)
-    
     #-----Vars
     filename = os.path.join(BASE_DIR, "DATA", "pretrain.txt")
     trainfilename = os.path.join(BASE_DIR, "DATA", "wiki.txt")
     train1filename = os.path.join(BASE_DIR, "DATA", "train1.txt")
     train2filename = os.path.join(BASE_DIR, "DATA", "combined.txt")
     bin = os.path.join(BASE_DIR, "DATA", "training_data.bin")
-    lr = 0.0002
+    lr = 0.0001
     train_lr = 0.00001
-    subsetfraction = 0.1
-    epochs = 2
+    subsetfraction = 1.0
+    epochs = 1
     batchsize = 48
     chunksize= 512
     #-----
@@ -192,4 +191,4 @@ if __name__ == '__main__':
             torch.save(model.state_dict(), "model_best.pth")
         else:
             with torch.no_grad():
-                think(user_input, model, iter=3)
+                think(user_input, model, iter=3, raw=False)

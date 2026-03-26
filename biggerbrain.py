@@ -163,7 +163,17 @@ class biggerbrain(nn.Module):
         best_loss   = 1000.0
         
         #self.forward_training = torch.compile(self.forward_training, backend ='eager')#, options=['shape_padding':True] model
-        
+        if os.path.exists("checkpoint_full.pth"):
+            checkpoint = torch.load("checkpoint_full.pth", weights_only=False, map_location='cpu')
+            self.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
+            start_epoch = checkpoint['epoch']
+            #all_indices = checkpoint['all_indices']
+            batchloss = checkpoint['batchloss']
+            print(f"Loaded checkpoint for training. {scheduler.get_last_lr()}")
+            
+            
         for epoch in range(epochs):
             
             #torch.cuda.empty_cache()  # ← add this line
@@ -231,7 +241,6 @@ class biggerbrain(nn.Module):
 
                 loss.backward()
 
-                #if (i) % 5 == 0:
 
                 if (i) % accumulation_steps == 0:
 
@@ -247,6 +256,17 @@ class biggerbrain(nn.Module):
                         print(f"saved best batch weights loss: {batchloss:.4f}")
                 if (i + 1) % 20 == 0:
                     print(f"Epoch {epoch} | Batch {i} | loss={lm_loss.detach().item():.4f}")
+                    # Save full training state:
+                    torch.save({
+                    'model': self.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'chunk_idx': chunk_idx,
+                    #'all_indices': all_indices,  # save the shuffle order
+                    'batchloss': batchloss,
+                    }, "checkpoint_full.pth")
+                    print(f"Saved state.")
                     
             avg_loss  = (epoch_loss / batches_run)
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -504,12 +524,17 @@ class biggerbrain(nn.Module):
 
 def initmodel(device):
     model = biggerbrain(device).to(device)
-    #model = torch.compile(model, fullgraph=False)
+    #model = torch.compile(model, fullgraph=False, mode='eager')
     
     return model
 
-def think(prompt, model, max_length=100, iter=3, top_k=25, temperature=0.8):
-    formatted = f"user: {prompt}\nassistant:"
+def think(prompt, model, max_length=100, iter=3, top_k=25, temperature=0.8, raw=False):
+    
+    if raw:
+        formatted = prompt
+    else:
+        formatted = f"user: {prompt}\nassistant:"
+        
     input_ids = torch.tensor([enc.encode(formatted, allowed_special={'<|endoftext|>'})]).to(model.device)
     
     model.eval()
