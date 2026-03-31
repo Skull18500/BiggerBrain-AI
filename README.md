@@ -104,6 +104,9 @@ the thinking loop.
 Currently in pretraining phase on ~6B tokens of mixed text data
 (Project Gutenberg, Wikipedia, OpenWebText, TinyStories).
 
+## Hugging Face
+https://huggingface.co/Skull18500/Biggerbrain-118-million
+
 ## Author
 
 Built by a 13-year-old ML enthusiast. Youtube : [channel](https://www.youtube.com/@skull18500/videos)
